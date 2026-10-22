@@ -7,6 +7,10 @@ protobuf
 requests
 # optional - Qwen3-TTS nodes
 qwen-tts
+# optional - OmniVoice TTS nodes (requires Transformers 5.3+ for HiggsAudioV2)
+omnivoice==0.2.1
+transformers>=5.3.0
+soxr
 # optional - Normal Map (BAE) preprocessor node (EfficientNet-B5 encoder); also UniRig (PTv3 DropPath)
 timm
 # optional - TripoSG nodes (marching cubes)

@@ -4255,3 +4255,19 @@ Left out: TRELLIS.2 512 / 1536 pipelines' texture-512 file (both engines run the
 encoders (core has no encode path), the sidecar's multiview/refine/texture-mesh
 modes, the Comfy-Org-format merged files the owner also uploaded (core's own
 loaders already take those).
+
+## 2026-10-22 (v2.21.0) - OmniVoice loader + short/long TTS
+
+Ported the requested short-form voice-clone and long-form nodes from
+`Saganaki22/ComfyUI-OmniVoice-TTS` (Apache-2.0) into `nodes/omnivoice.py`, with a
+house-style explicit `OMNIVOICE_MODEL` loader and collision-resistant CCTech ids.
+The loader downloads `k2-fsa/OmniVoice` / `drbaph/OmniVoice-bf16` into
+`models/omnivoice`, accepts local folders, preserves device/dtype/SageAttention
+choices, and uses a single active cache with serialized generation and CPU offload.
+Both generators retain the source controls, optional `WHISPER_ASR`, local/internal
+ASR fallback, 24 kHz conversion, long-reference trimming, instruction validation,
+and seed/progress/interrupt behavior. Long form retains multilingual sentence-aware
+chunking and fixed-first-chunk voice consistency. `tools/smoke_omnivoice.py` covers
+the offline contracts; OmniVoice 0.2.1 and Transformers 5.3+ are explicit optional
+requirements because the runtime's HiggsAudioV2 tokenizer is unavailable on older
+Transformers releases.

@@ -15,6 +15,7 @@ Note: The "Force/Set CLIP Device" is **NOT** part of this node pack. Do not inst
 - **Open upstream PRs backported**, including newer architectures (LTX-2, Z-Image, Ideogram-4, Qwen3-VL / MiniMax-H3 text encoders). See [PR_BACKPORT.md](PR_BACKPORT.md).
 - **MiniMax-H3 fix**: high-precision buffers such as `adaln_t_table` are kept in float32 through both conversion and loading. Stored as F16 they crash the sampler on the first step with `expected dtype struct c10::Half for 'weight' but got dtype float`.
 - **Convenience pipelines**: Scenema Audio and MiniMax Music 3 loaders/generators built on ComfyUI's native models.
+- **Local speech generation**: Qwen3-TTS and OmniVoice loaders/generators, including OmniVoice short-form cloning and sentence-aware long-form synthesis.
 
 ## Installation
 
@@ -57,7 +58,7 @@ See the instructions in the [tools](https://github.com/ChrisColeTech/ComfyUI-GGU
 
 ## Nodes
 
-The GGUF loaders live under `🤖 CCTech/GGUF`; Scenema Audio under `🤖 CCTech/Scenema`; MiniMax Music 3 under `🤖 CCTech/MiniMax Music`; LTX-2.3 A/V under `🤖 CCTech/LTX-2.3`; LTX-2.5 A/V under `🤖 CCTech/LTX-2.5`; local LLM/VLM prompting under `🤖 CCTech/LM Studio`; Qwen3-TTS under `🤖 CCTech/Qwen TTS`; TripoSG image-to-3D under `🤖 CCTech/TripoSG`; UniRig auto-rigging under `🤖 CCTech/UniRig`; TRELLIS.2 / Pixal3D per-stage loaders under `🤖 CCTech/TRELLIS.2`.
+The GGUF loaders live under `🤖 CCTech/GGUF`; Scenema Audio under `🤖 CCTech/Scenema`; MiniMax Music 3 under `🤖 CCTech/MiniMax Music`; LTX-2.3 A/V under `🤖 CCTech/LTX-2.3`; LTX-2.5 A/V under `🤖 CCTech/LTX-2.5`; local LLM/VLM prompting under `🤖 CCTech/LM Studio`; Qwen3-TTS under `🤖 CCTech/Qwen TTS`; OmniVoice under `🤖 CCTech/OmniVoice`; TripoSG image-to-3D under `🤖 CCTech/TripoSG`; UniRig auto-rigging under `🤖 CCTech/UniRig`; TRELLIS.2 / Pixal3D per-stage loaders under `🤖 CCTech/TRELLIS.2`.
 
 | Node | Purpose |
 |---|---|
@@ -73,6 +74,9 @@ The GGUF loaders live under `🤖 CCTech/GGUF`; Scenema Audio under `🤖 CCTech
 | **Scenema Audio Voice Clone** | standalone offline SeedVC identity transfer |
 | **MiniMax Music 3 Models Loader** | loads the pruned AR conditioner, flow DiT, and DAV decoder from explicit dropdowns |
 | **MiniMax Music 3 Audio Generate** | caption + structured lyrics → 44.1 kHz stereo music, including AR and DiT controls |
+| **OmniVoice Models Loader** | loads or downloads an OmniVoice checkpoint with device, precision, attention, and CPU-offload controls |
+| **OmniVoice Voice Clone TTS** | short-form zero-shot voice cloning from a reference clip, with optional Whisper transcription |
+| **OmniVoice Longform TTS** | multilingual sentence-aware chunking, optional voice cloning, and fixed first-chunk voice consistency |
 
 ### Dual VAE Loader
 
@@ -339,6 +343,16 @@ Six more nodes ported from the same pack's newer revision round out the family. 
 
 Under the hood the in-node loading reuses this pack's plumbing: models are searched in `models/qwen-tts/` (the source pack's tree, also registered for `extra_model_paths.yaml`) *then* `models/Qwen3-TTS/`, downloaded from HuggingFace when found in neither, and a single-slot cache means two nodes with the same config share weights. The `Qwen3-TTS Models Loader` + `Qwen3-TTS Custom Voice` pair above is unchanged and still works alongside them.
 
+### OmniVoice TTS
+
+Ported from [Saganaki22/ComfyUI-OmniVoice-TTS](https://github.com/Saganaki22/ComfyUI-OmniVoice-TTS) (Apache-2.0), under `🤖 CCTech/OmniVoice`. This port keeps the source pack's long-form and short-form voice-clone behavior while following this repo's explicit-loader convention:
+
+- **OmniVoice Models Loader** selects `k2-fsa/OmniVoice`, `drbaph/OmniVoice-bf16`, or any complete local folder under `models/omnivoice/`. Known models download there once on first use. `device`, `dtype`, and `attention` expose the source choices, including optional SageAttention. `keep_model_loaded` retains the Python model and offloads it to CPU between generations; disabling it drops the loaded weights and safely reloads if ComfyUI reuses the loader output.
+- **OmniVoice Voice Clone TTS** is the source short-form node: text plus required `ref_audio`, optional transcript/Whisper, all diffusion controls, speed or fixed duration, denoise/pre/post-processing, seed, and the model-supported dialect/style `instruct`. References are downmixed and resampled to 24 kHz; an untranscribed reference over 20 seconds is silence-trimmed to at most 15 seconds before both ASR and voice encoding.
+- **OmniVoice Longform TTS** adds multilingual sentence-aware chunking. Space-delimited languages split by words; CJK, Thai, Lao, Myanmar, and Khmer use character-aware boundaries. With an explicit reference, every chunk uses that same voice. Without one, the first generated chunk becomes the fixed reference for all later chunks (capped at 25 seconds), preventing rolling voice drift.
+
+Both generators return mono Comfy `AUDIO` at 24 kHz and retain the source's optional `WHISPER_ASR` socket. If no external Whisper pipeline or local model under `models/audio_encoders/` is available, OmniVoice's own internal transcription path is used. OmniVoice 0.2.1 requires Transformers 5.3+ for `HiggsAudioV2TokenizerModel`; the requirement is explicit rather than hidden behind an import-time package installer. `tools/smoke_omnivoice.py` covers the node surfaces, download/cache lifecycle, generation kwargs, resampling/transcription, long-reference trimming, multilingual chunking, fixed voice references, interrupts, and offload/reload without downloading weights.
+
 `tools/smoke_qwen_tts.py` stubs `folder_paths` and `qwen_tts.Qwen3TTSModel` and validates path discovery, loader kwargs/caching, the generate node's seeding/AUDIO-dict/unload logic, the new nodes' in-node model resolution (local search, cache reuse/eviction, attention fallback), audio conversion/kwargs, and the save/load round-trip — no GPU or real weights required. The full chain (CustomVoice reference speech → prompt extraction → save/load → clone from the *saved* prompt → role bank → voice design) is verified end-to-end against real checkpoints on every port.
 
 ### TripoSG (image → 3D mesh)
@@ -429,6 +443,8 @@ The loader returns standard comfy **MODEL / CLIP / VAE** objects. Native ConvRot
 **Audio Stem Split** lives in the same `🤖 CCTech/MiniMax Music` category — separates any Comfy `AUDIO` (a MiniMax Music 3 generation or anything else) into an acapella and an instrumental with MelBandRoformer (public `MelBandRoformer_fp16` checkpoint; only the inference architecture is ported, staged through Comfy model management like every other model in this pack). Useful standalone, and as a cleaner input for downstream captioning or remixing — an isolated stem gives an audio-language model a much cleaner read on the vocal or the arrangement than the full mix.
 
 ## Credits
+
+- OmniVoice TTS orchestration is ported from [Saganaki22/ComfyUI-OmniVoice-TTS](https://github.com/Saganaki22/ComfyUI-OmniVoice-TTS), Apache-2.0. Model/runtime licensing remains governed by [k2-fsa/OmniVoice](https://huggingface.co/k2-fsa/OmniVoice).
 
 Fork of [city96/ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) (Apache-2.0) — the loader, the quantization tooling and the custom ops are theirs; the backported PRs are their authors', listed in [PR_BACKPORT.md](PR_BACKPORT.md). Report bugs in this fork here, not upstream.
 
